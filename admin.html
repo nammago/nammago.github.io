@@ -27,13 +27,15 @@
 <body class="min-h-screen p-4 md:p-8">
 
 <div class="max-w-6xl mx-auto">
-    <!-- Auth View Gate -->
-    <div id="authGate" class="glass-card max-w-md mx-auto rounded-3xl p-8 text-center my-20">
-        <i data-lucide="shield-check" class="w-12 h-12 text-orange-500 mx-auto mb-4"></i>
-        <h2 class="text-2xl font-bold text-adaptive-heading mb-6">Operations Control Desk</h2>
-        <input type="password" id="passCode" placeholder="••••••••" class="w-full text-center bg-white/40 dark:bg-white/5 border border-slate-300 dark:border-white/10 rounded-xl py-3 px-4 mb-4 text-slate-900 dark:text-white focus:outline-none">
-        <button onclick="handleAuth()" class="w-full py-3 bg-orange-500 text-white font-bold rounded-xl shadow-lg">Access Ecosystem</button>
-    </div>
+
+	<!-- Auth View Gate -->
+	<div id="authGate" class="glass-card max-w-md mx-auto rounded-3xl p-8 text-center my-20">
+		<i data-lucide="shield-check" class="w-12 h-12 text-orange-500 mx-auto mb-4"></i>
+		<h2 class="text-2xl font-bold text-adaptive-heading mb-6">Operations Control Desk</h2>
+		<input type="email" id="adminEmail" placeholder="admin@nammago.com" class="w-full text-center bg-white/40 dark:bg-white/5 border border-slate-300 dark:border-white/10 rounded-xl py-3 px-4 mb-3 text-slate-900 dark:text-white focus:outline-none">
+		<input type="password" id="passCode" placeholder="••••••••" class="w-full text-center bg-white/40 dark:bg-white/5 border border-slate-300 dark:border-white/10 rounded-xl py-3 px-4 mb-4 text-slate-900 dark:text-white focus:outline-none">
+		<button onclick="handleAuth()" class="w-full py-3 bg-orange-500 text-white font-bold rounded-xl shadow-lg">Access Ecosystem</button>
+	</div>
 
     <!-- Dashboard Panel View -->
     <div id="adminPanel" class="hidden space-y-8">
@@ -158,6 +160,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
 <script>
     const firebaseConfig = {
@@ -171,43 +174,37 @@
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+    const auth = firebase.auth();
 
     let database = { cars: [], reviews: [], legal: [], ledger: [] };
-    let verifiedPass = '';
-    
-    // Safety Net: Prevents the script from crashing if the browser blocks file:/// local storage
-    try {
-        verifiedPass = localStorage.getItem('ngAdminAuth') || '';
-    } catch(e) {
-        console.warn("Local storage disabled for local files. Auto-login bypassed.");
-    }
-    
-    const MASTER_PASSWORD = "#Pink-Elephant@2026";
 
-    window.onload = () => { if(verifiedPass === MASTER_PASSWORD) handleAuth(true); };
-
-    function handleAuth(auto = false) {
-        const passAttempt = auto ? verifiedPass : document.getElementById('passCode').value;
-        if(passAttempt === MASTER_PASSWORD) {
-            verifiedPass = passAttempt;
-            try { localStorage.setItem('ngAdminAuth', verifiedPass); } catch(e) {}
-            
+    // Firebase automatically tracks session state securely
+    auth.onAuthStateChanged((user) => {
+        if (user) {
             document.getElementById('authGate').classList.add('hidden');
             document.getElementById('adminPanel').classList.remove('hidden');
             fetchAdminMatrix();
         } else {
-            alert("Invalid Administrator Password.");
-            logout();
+            document.getElementById('adminPanel').classList.add('hidden');
+            document.getElementById('authGate').classList.remove('hidden');
+        }
+    });
+
+    async function handleAuth() {
+        const email = document.getElementById('adminEmail').value;
+        const password = document.getElementById('passCode').value;
+
+        if(!email || !password) return alert("Email and Password are required.");
+
+        try {
+            await auth.signInWithEmailAndPassword(email, password);
+        } catch (error) {
+            alert("Authentication failed: " + error.message);
         }
     }
 
     function logout() {
-        verifiedPass = ''; 
-        document.getElementById('passCode').value = '';
-        try { localStorage.removeItem('ngAdminAuth'); } catch(e) {}
-        
-        document.getElementById('adminPanel').classList.add('hidden');
-        document.getElementById('authGate').classList.remove('hidden');
+        auth.signOut();
     }
 
     async function fetchAdminMatrix() {
@@ -229,8 +226,7 @@
             buildLedgerFilters();
             renderLedgerRows();
         } catch (e) {
-            alert("Database connection failed. Please check your internet connection or Firebase rules.");
-            console.log("Error loading database: ", e);
+            alert("Access denied or connection error.");
         }
     }
 
@@ -254,7 +250,7 @@
         database.cars.forEach(c => {
             carBody.insertAdjacentHTML('beforeend', `
             <tr class="border-b border-black/5 dark:border-white/5 hover:bg-black/5 dark:hover:bg-white/5 transition">
-                <td class="p-3 font-bold">${c.Model.substring(0,3).toUpperCase()}</td>
+                <td class="p-3 font-bold">${(c.Model || 'CAR').substring(0,3).toUpperCase()}</td>
                 <td class="p-3 font-semibold text-adaptive-heading">${c.Model}</td>
                 <td class="p-3 font-bold">₹${Number(c.Price).toLocaleString('en-IN')}</td>
                 <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${c.Status === 'Booked' ? 'bg-orange-500/20 text-orange-500' : 'bg-emerald-500/20 text-emerald-500'}">${c.Status}</span></td>
