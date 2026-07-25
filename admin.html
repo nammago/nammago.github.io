@@ -155,65 +155,82 @@
     </div>
 </div>
 
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
 <script>
-    const API_LINK = 'https://script.google.com/macros/s/AKfycbynUQLYdBOnH9RrKwYRpGOcoB4ismG-tBCfFcjoGlNBoZC90MtIMKmoLDp5jiooPuJ0Tw/exec'; 
+    const firebaseConfig = {
+        apiKey: "AIzaSyBSKdiSbap5w4sv4ZUrUfnw7Rk9oiSQKsM",
+        authDomain: "nammagocar.firebaseapp.com",
+        projectId: "nammagocar",
+        storageBucket: "nammagocar.firebasestorage.app",
+        messagingSenderId: "370446372753",
+        appId: "1:370446372753:web:0b75e44cf7b4fdf2a99430"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
     let database = { cars: [], reviews: [], legal: [], ledger: [] };
-    let verifiedPass = localStorage.getItem('ngAdminAuth') || '';
+    let verifiedPass = '';
+    
+    // Safety Net: Prevents the script from crashing if the browser blocks file:/// local storage
+    try {
+        verifiedPass = localStorage.getItem('ngAdminAuth') || '';
+    } catch(e) {
+        console.warn("Local storage disabled for local files. Auto-login bypassed.");
+    }
+    
+    const MASTER_PASSWORD = "#Pink-Elephant@2026";
 
-    window.onload = () => { if(verifiedPass) handleAuth(true); };
+    window.onload = () => { if(verifiedPass === MASTER_PASSWORD) handleAuth(true); };
 
-    async function handleAuth(auto = false) {
+    function handleAuth(auto = false) {
         const passAttempt = auto ? verifiedPass : document.getElementById('passCode').value;
-        if(!passAttempt) return alert("Credentials mandatory");
-
-        try {
-            // FIX: Uses GET Request to securely bypass POST CORS restriction
-            const response = await fetch(`${API_LINK}?password=${encodeURIComponent(passAttempt)}`);
-            const data = await response.json();
-
-            if (data.authSuccess) {
-                verifiedPass = passAttempt;
-                localStorage.setItem('ngAdminAuth', verifiedPass);
-                
-                // Assign database directly from Auth Response payload
-                database = data;
-                
-                document.getElementById('authGate').classList.add('hidden');
-                document.getElementById('adminPanel').classList.remove('hidden');
-                
-                // Immediately render UI components
-                renderTableData();
-                populateLegalFields();
-                buildLedgerFilters();
-                renderLedgerRows();
-            } else {
-                alert("Invalid Administrator Password.");
-                logout();
-            }
-        } catch (e) {
-            alert("Connection error. Ensure your API_LINK is pasted correctly inside admin.html.");
+        if(passAttempt === MASTER_PASSWORD) {
+            verifiedPass = passAttempt;
+            try { localStorage.setItem('ngAdminAuth', verifiedPass); } catch(e) {}
+            
+            document.getElementById('authGate').classList.add('hidden');
+            document.getElementById('adminPanel').classList.remove('hidden');
+            fetchAdminMatrix();
+        } else {
+            alert("Invalid Administrator Password.");
+            logout();
         }
     }
 
     function logout() {
         verifiedPass = ''; 
         document.getElementById('passCode').value = '';
-        localStorage.removeItem('ngAdminAuth');
+        try { localStorage.removeItem('ngAdminAuth'); } catch(e) {}
+        
         document.getElementById('adminPanel').classList.add('hidden');
         document.getElementById('authGate').classList.remove('hidden');
     }
 
     async function fetchAdminMatrix() {
         try {
-            // Refresh with secure parameters
-            const res = await fetch(`${API_LINK}?password=${encodeURIComponent(verifiedPass)}`);
-            database = await res.json();
+            const carsSnap = await db.collection('cars').get();
+            database.cars = carsSnap.docs.map(doc => ({ fb_id: doc.id, ...doc.data() }));
+
+            const revSnap = await db.collection('reviews').get();
+            database.reviews = revSnap.docs.map(doc => ({ fb_id: doc.id, ...doc.data() }));
+
+            const ledgerSnap = await db.collection('ledger').get();
+            database.ledger = ledgerSnap.docs.map(doc => doc.data());
+
+            const legalSnap = await db.collection('legal').get();
+            database.legal = legalSnap.docs.map(doc => ({ Key: doc.id, ...doc.data() }));
+
             renderTableData();
             populateLegalFields();
             buildLedgerFilters();
             renderLedgerRows();
-        } catch {
-            console.log("Error loading database structure.");
+        } catch (e) {
+            alert("Database connection failed. Please check your internet connection or Firebase rules.");
+            console.log("Error loading database: ", e);
         }
     }
 
@@ -237,13 +254,13 @@
         database.cars.forEach(c => {
             carBody.insertAdjacentHTML('beforeend', `
             <tr class="border-b border-black/5 dark:border-white/5 hover:bg-black/5 dark:hover:bg-white/5 transition">
-                <td class="p-3 font-bold">${c.ID}</td>
+                <td class="p-3 font-bold">${c.Model.substring(0,3).toUpperCase()}</td>
                 <td class="p-3 font-semibold text-adaptive-heading">${c.Model}</td>
                 <td class="p-3 font-bold">₹${Number(c.Price).toLocaleString('en-IN')}</td>
                 <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${c.Status === 'Booked' ? 'bg-orange-500/20 text-orange-500' : 'bg-emerald-500/20 text-emerald-500'}">${c.Status}</span></td>
                 <td class="p-3 text-right">
-                    <button onclick="editCar(${c.ID})" class="text-blue-500 mr-2"><i data-lucide="edit" class="w-4 h-4 inline"></i></button>
-                    <button onclick="deleteOperation('deleteCar', ${c.ID})" class="text-red-500"><i data-lucide="trash" class="w-4 h-4 inline"></i></button>
+                    <button onclick="editCar('${c.fb_id}')" class="text-blue-500 mr-2"><i data-lucide="edit" class="w-4 h-4 inline"></i></button>
+                    <button onclick="deleteOperation('cars', '${c.fb_id}')" class="text-red-500"><i data-lucide="trash" class="w-4 h-4 inline"></i></button>
                 </td>
             </tr>
             `);
@@ -253,10 +270,9 @@
         database.reviews.forEach(r => {
             revBody.insertAdjacentHTML('beforeend', `
             <tr class="border-b border-black/5 dark:border-white/5 hover:bg-black/5 dark:hover:bg-white/5 transition">
-                <td class="p-3 font-bold">${r.ID}</td>
                 <td class="p-3 font-semibold text-adaptive-heading">${r.Name}</td>
                 <td class="p-3 text-xs max-w-xs truncate">${r.Text}</td>
-                <td class="p-3 text-right"><button onclick="deleteOperation('deleteReview', ${r.ID})" class="text-red-500"><i data-lucide="trash" class="w-4 h-4 inline"></i></button></td>
+                <td class="p-3 text-right"><button onclick="deleteOperation('reviews', '${r.fb_id}')" class="text-red-500"><i data-lucide="trash" class="w-4 h-4 inline"></i></button></td>
             </tr>
             `);
         });
@@ -300,14 +316,13 @@
                 <tr class="border-b border-black/5 dark:border-white/5">
                     <td class="p-3 text-xs">${l.Timestamp}</td>
                     <td class="p-3 text-adaptive-heading font-semibold">${l.CarModel}</td>
-                    <td class="p-3">${l.CustomerName} <span class="text-xs text-slate-400">(${l.Contact.replace("'", "")})</span></td>
+                    <td class="p-3">${l.CustomerName} <span class="text-xs text-slate-400">(${l.Contact})</span></td>
                     <td class="p-3 text-xs">${l.FromDate} to ${l.ToDate}</td>
                     <td class="p-3 font-bold text-emerald-500">₹${Number(l.Revenue).toLocaleString('en-IN')}</td>
                 </tr>
                 `);
             }
         });
-
         document.getElementById('monthRevSum').innerText = `₹${totalMonthRevenue.toLocaleString('en-IN')}`;
         document.getElementById('yearRevSum').innerText = `₹${totalYearRevenue.toLocaleString('en-IN')}`;
     }
@@ -322,23 +337,14 @@
         document.getElementById('carModal').classList.replace('hidden', 'flex'); 
     }
     
-    function closeCarModal() { 
-        document.getElementById('carModal').classList.replace('flex', 'hidden'); 
-    }
-    
-    function openReviewModal() { 
-        document.getElementById('reviewForm').reset(); 
-        document.getElementById('reviewModal').classList.replace('hidden', 'flex'); 
-    }
-    
-    function closeReviewModal() { 
-        document.getElementById('reviewModal').classList.replace('flex', 'hidden'); 
-    }
+    function closeCarModal() { document.getElementById('carModal').classList.replace('flex', 'hidden'); }
+    function openReviewModal() { document.getElementById('reviewForm').reset(); document.getElementById('reviewModal').classList.replace('hidden', 'flex'); }
+    function closeReviewModal() { document.getElementById('reviewModal').classList.replace('flex', 'hidden'); }
 
-    function editCar(id) {
-        const c = database.cars.find(item => Number(item.ID) === id);
+    function editCar(fb_id) {
+        const c = database.cars.find(item => item.fb_id === fb_id);
         if(!c) return;
-        document.getElementById('carIdField').value = c.ID;
+        document.getElementById('carIdField').value = c.fb_id;
         document.getElementById('cModel').value = c.Model;
         document.getElementById('cType').value = c.Type;
         document.getElementById('cImages').value = c.Images;
@@ -359,46 +365,79 @@
         const toD = new Date(document.getElementById('cTo').value);
         const days = Math.max(1, Math.ceil((toD - fromD) / (1000 * 60 * 60 * 24)));
         const calculatedRev = days * Number(document.getElementById('cPrice').value);
+        const carId = document.getElementById('carIdField').value;
 
-        const payload = {
-            password: verifiedPass, action: document.getElementById('carIdField').value ? "updateCar" : "addCar",
-            id: document.getElementById('carIdField').value || undefined,
-            model: document.getElementById('cModel').value, type: document.getElementById('cType').value,
-            images: document.getElementById('cImages').value, price: Number(document.getElementById('cPrice').value),
-            status: document.getElementById('cStatus').value, seats: document.getElementById('cSeats').value,
-            transmission: document.getElementById('cTrans').value, fuel: document.getElementById('cFuel').value,
-            bookedFrom: document.getElementById('cFrom').value, bookedTo: document.getElementById('cTo').value,
-            rating: document.getElementById('cRating').value || "4.9", 
-            custName: document.getElementById('cCustName').value, custPhone: document.getElementById('cCustPhone').value,
-            calculatedRevenue: calculatedRev
+        const carData = {
+            Model: document.getElementById('cModel').value,
+            Type: document.getElementById('cType').value,
+            Images: document.getElementById('cImages').value,
+            Price: Number(document.getElementById('cPrice').value),
+            Status: document.getElementById('cStatus').value,
+            Seats: document.getElementById('cSeats').value,
+            Transmission: document.getElementById('cTrans').value,
+            Fuel: document.getElementById('cFuel').value,
+            BookedFrom: document.getElementById('cFrom').value,
+            BookedTo: document.getElementById('cTo').value,
+            Rating: document.getElementById('cRating').value || "4.9"
         };
-        sendPayload(payload);
-        closeCarModal();
+
+        try {
+            if (carId) {
+                await db.collection('cars').doc(carId).set(carData, { merge: true });
+            } else {
+                await db.collection('cars').add(carData);
+            }
+
+            if (document.getElementById('cCustName').value) {
+                await db.collection('ledger').add({
+                    Timestamp: new Date().toLocaleDateString('en-GB'),
+                    CarModel: document.getElementById('cModel').value,
+                    CustomerName: document.getElementById('cCustName').value,
+                    Contact: document.getElementById('cCustPhone').value,
+                    FromDate: document.getElementById('cFrom').value,
+                    ToDate: document.getElementById('cTo').value,
+                    Revenue: calculatedRev
+                });
+            }
+
+            alert("Vehicle updated successfully in Firebase.");
+            closeCarModal();
+            fetchAdminMatrix();
+        } catch(error) {
+            alert("Error saving data: " + error.message);
+        }
     }
 
     async function handleReviewSubmit(e) {
         e.preventDefault();
-        sendPayload({ password: verifiedPass, action: "addReview", name: document.getElementById('rName').value, text: document.getElementById('rText').value, stars: document.getElementById('rStars').value });
-        closeReviewModal();
+        try {
+            await db.collection('reviews').add({
+                Name: document.getElementById('rName').value,
+                Text: document.getElementById('rText').value,
+                Stars: document.getElementById('rStars').value
+            });
+            alert("Review added.");
+            closeReviewModal();
+            fetchAdminMatrix();
+        } catch(error) { alert("Error adding review."); }
     }
 
-    async function saveLegalText(key) { sendPayload({ password: verifiedPass, action: "updateLegal", key: key, content: document.getElementById('legal_' + key).value }); }
-    
-    async function deleteOperation(action, id) { if(confirm("Execute permanent entry structural row removal?")) sendPayload({ password: verifiedPass, action: action, id: id }); }
-
-    async function sendPayload(obj) {
+    async function saveLegalText(key) { 
         try {
-            await fetch(API_LINK, { 
-                method: 'POST', 
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify(obj) 
+            await db.collection('legal').doc(key).set({
+                Content: document.getElementById('legal_' + key).value
             });
-            alert("Record structural operations synced to master deployment.");
-            setTimeout(() => { fetchAdminMatrix(); }, 1200);
-        } catch (e) {
-            alert("API Link Error.");
-        }
+            alert("Legal text updated.");
+        } catch(error) { alert("Error saving legal text."); }
+    }
+    
+    async function deleteOperation(collectionName, fb_id) { 
+        if(confirm("Are you sure you want to delete this record?")) {
+            try {
+                await db.collection(collectionName).doc(fb_id).delete();
+                fetchAdminMatrix();
+            } catch(error) { alert("Error deleting record."); }
+        } 
     }
 </script>
 </body>
